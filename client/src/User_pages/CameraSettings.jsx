@@ -58,15 +58,17 @@ const CameraSettings = () => {
     if (form.feature2) features.push('2');
     if (form.feature3) features.push('3');
 
+    const requestBody = {
+      name: form.name,
+      status: form.status,
+      src: form.src,
+      features: features
+    };
+
     if (editing) {
       try {
         // Update camera details
-        const res = await api.put(`/api/cameras/${editId}`, {
-          ...form,
-          feature1: form.feature1 || false,
-          feature2: form.feature2 || false,
-          feature3: form.feature3 || false
-        });
+        const res = await api.put(`/api/cameras/${editId}`, requestBody);
 
         // Start detection for the camera
         try {
@@ -91,12 +93,7 @@ const CameraSettings = () => {
     } else {
       try {
         // Create new camera
-        const res = await api.post('/api/cameras', {
-          ...form,
-          feature1: form.feature1 || false,
-          feature2: form.feature2 || false,
-          feature3: form.feature3 || false
-        });
+        const res = await api.post('/api/cameras', requestBody);
 
         // Start detection for the new camera
         try {

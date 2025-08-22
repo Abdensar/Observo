@@ -6,18 +6,15 @@ import os
 from datetime import datetime, time
 import time as time_module
 import logging
-from dotenv import load_dotenv
-import subprocess
 import argparse
-from flask import Flask, Response
+import subprocess
+from flask import Flask, Response, request
 from flask_cors import CORS
 import threading
 
 # Configuration
 MODEL_PATH = "yolov8n.pt"
 FRAME_SAVE_PATH = "alerts"
-load_dotenv()
-VIDEO_PATH = os.getenv("VIDEO_SOURCE")
 RTSP_RECONNECT_DELAY = 5
 FRAME_SKIP = 2
 
@@ -26,6 +23,12 @@ MIN_ZONE_DWELL_TIME = 3
 MIN_LOITER_TIME = 10
 ALERT_TIME_WINDOW = (time(22, 0), time(5, 0))
 ALERT_COOLDOWN = 60  # 1 minute cooldown between alerts
+
+# Argument parsing
+parser = argparse.ArgumentParser(description='Security Monitoring')
+parser.add_argument('--camera_url', required=True, help='RTSP stream URL')
+parser.add_argument('--features', required=True, help='Comma-separated feature codes (1,2,3)')
+args = parser.parse_args()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -36,18 +39,25 @@ app = Flask(__name__)
 CORS(app)
 
 class SecurityMonitor:
-    def __init__(self, model):
-        self.model = model
+    def __init__(self, video_path, features):
+        self.model = YOLO(MODEL_PATH)
+        self.video_path = video_path
+        self.frame_counter = 0
+        # Validate features
+        valid_features = {'1', '2', '3'}
+        feature_list = [f.strip() for f in features.split(',')]
+        if not all(f in valid_features for f in feature_list):
+            raise ValueError(f"Invalid feature codes. Only 1,2,3 are allowed. Got: {features}")
+            
+        self.features = feature_list
         self.protected_zone = None
         self.person_timers = {}
         self.car_positions = []
-        self.alerts = []
-        self.last_night_alert = 0
-        self.frame_counter = 0
+        self.last_alert_time = 0
         self.enabled_features = {
-            'protected_zone': False,
-            'loitering': False,
-            'time_window': False
+            'protected_zone': '1' in features,
+            'loitering': '2' in features,
+            'intruder': '3' in features
         }
         self.alert_colors = {
             "ZONE": (0, 255, 255),
@@ -58,6 +68,7 @@ class SecurityMonitor:
         self.last_alert_times = {}
         self.current_frame = None
         self.frame_lock = threading.Lock()
+        self.alerts = []
 
     def show_config_menu(self):
         """Display configuration menu and get user choices"""
@@ -82,19 +93,19 @@ class SecurityMonitor:
 
         self.enabled_features['protected_zone'] = 1 in valid_choices
         self.enabled_features['loitering'] = 2 in valid_choices
-        self.enabled_features['time_window'] = 3 in valid_choices
+        self.enabled_features['intruder'] = 3 in valid_choices
 
         print("\nEnabled Features:")
         for feat, enabled in self.enabled_features.items():
             print(f"- {feat.replace('_', ' ').title()}: {'Yes' if enabled else 'No'}")
 
-    def draw_zone_interactive(self, video_path):
+    def draw_zone_interactive(self):
         """Let user draw the protected zone if enabled"""
         if not self.enabled_features['protected_zone']:
             return []
 
         PROTECTED_ZONE_POINTS = []
-        cap = self.get_video_capture(video_path)
+        cap = self.get_video_capture()
         ret, frame = cap.read()
         if not ret:
             logger.error("Cannot read video")
@@ -144,18 +155,25 @@ class SecurityMonitor:
         cap.release()
         return PROTECTED_ZONE_POINTS
 
-    def get_video_capture(self, video_path):
-        """Create a VideoCapture object with appropriate settings"""
-        if video_path.startswith('rtsp://'):
-            cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
-            cap.set(cv2.CAP_PROP_FPS, 15)
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'H264'))
-            logger.info("Configured RTSP stream with FFMPEG backend")
-        else:
-            cap = cv2.VideoCapture(video_path)
-            logger.info(f"Reading from video file: {video_path}")
-        return cap
+    def get_video_capture(self):
+        if not self.video_path:
+            raise ValueError("No video source configured for camera")
+            
+        try:
+            if self.video_path.startswith('rtsp://'):
+                cap = cv2.VideoCapture(self.video_path, cv2.CAP_FFMPEG)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+            else:
+                cap = cv2.VideoCapture(self.video_path)
+                
+            if not cap.isOpened():
+                raise RuntimeError(f"Failed to open video source: {self.video_path}")
+                
+            return cap
+            
+        except Exception as e:
+            logger.error(f"Video capture initialization failed: {str(e)}")
+            raise
 
     def read_frame_with_retry(self, cap, max_attempts=3):
         """Attempt to read frame with reconnection logic"""
@@ -168,7 +186,7 @@ class SecurityMonitor:
                 logger.warning(f"Reconnecting attempt {attempt + 1}/{max_attempts}...")
                 cap.release()
                 time_module.sleep(RTSP_RECONNECT_DELAY)
-                cap = self.get_video_capture(VIDEO_PATH)
+                cap = self.get_video_capture()
         
         return False, None
 
@@ -241,7 +259,7 @@ class SecurityMonitor:
                                 self.person_timers.pop(f"loiter_{person_id}", None)
                     
                     # 3. Time Window Detection
-                    if (self.enabled_features['time_window'] and 
+                    if (self.enabled_features['intruder'] and 
                         current_time_in_window(*ALERT_TIME_WINDOW)):
                         alert_key = "NIGHT"
                         message = "Person detected during restricted hours"
@@ -260,18 +278,25 @@ class SecurityMonitor:
         os.makedirs(FRAME_SAVE_PATH, exist_ok=True)
         fname = f"{FRAME_SAVE_PATH}/{alert_type}_{timestamp}.jpg"
         cv2.imwrite(fname, frame)
-        self.alerts.append({
+        
+        alert_data = {
             "type": alert_type,
             "message": message,
             "image": fname,
             "timestamp": timestamp
-        })
+        }
+        
+        # Add camera_id if available
+        if hasattr(self, 'camera_id'):
+            alert_data["camera_id"] = self.camera_id
+            
+        self.alerts.append(alert_data)
         logger.info(f"Alert saved: {fname}")
         return fname
 
-    def run_detection(self, video_path):
+    def run_detection(self):
         """Main detection loop that runs in a separate thread"""
-        cap = self.get_video_capture(video_path)
+        cap = self.get_video_capture()
         last_frame_time = time_module.time()
         
         try:
@@ -356,10 +381,6 @@ def convert_rtsp_to_hls(rtsp_url, output_dir):
         logger.error(f"Failed to convert RTSP to HLS: {e}")
         return None
 
-# Initialize the monitor globally
-model = YOLO(MODEL_PATH)
-monitor = SecurityMonitor(model)
-
 @app.route('/video_feed', methods=['GET'])
 def video_feed():
     def generate():
@@ -382,83 +403,44 @@ def video_feed():
 
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-@app.route('/alerts', methods=['GET'])
-def get_alerts():
-    """Endpoint to get recent alerts"""
+@app.route('/status', methods=['GET'])
+def get_status():
+    """Endpoint to get security monitor status"""
+    camera_id = request.args.get('camera_id')
+    
+    # Filter alerts for this specific camera if camera_id is provided
+    if camera_id:
+        camera_alerts = [alert for alert in monitor.alerts if alert.get('camera_id') == camera_id]
+    else:
+        camera_alerts = monitor.alerts
+    
     return {
-        "alerts": monitor.alerts[-10:],  # Return last 10 alerts
-        "total_alerts": len(monitor.alerts)
+        "activeAlerts": len(camera_alerts),
+        "peopleCount": len([id for id in monitor.person_timers.keys() if id.startswith('zone_')]),
+        "currentAlerts": [alert['message'] for alert in camera_alerts[-5:]],  # Last 5 alerts
+        "detectionActive": True
     }
 
 def main():
-    os.makedirs(FRAME_SAVE_PATH, exist_ok=True)
-
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description="Run detection on an RTSP stream.")
-    parser.add_argument('rtsp_url', type=str, help="RTSP URL of the camera stream")
-    parser.add_argument('--features', type=str, help="Comma-separated list of features to enable (e.g., '1,2,3')")
-    args = parser.parse_args()
-
-    # Log received arguments
-    logger.info(f"Received RTSP URL: {args.rtsp_url}")
-    logger.info(f"Received Features: {args.features}")
-
-    VIDEO_PATH = args.rtsp_url
-    FEATURES = args.features.split(',') if args.features else []
-
-    # Log parsed features
-    logger.info(f"Parsed Features: {FEATURES}")
-
-    model = YOLO(MODEL_PATH)
-    monitor = SecurityMonitor(model)
-
-    # Enable features based on arguments
-    monitor.enabled_features['protected_zone'] = '1' in FEATURES
-    monitor.enabled_features['loitering'] = '2' in FEATURES
-    monitor.enabled_features['time_window'] = '3' in FEATURES
-
-    logger.info(f"Enabled Features: {monitor.enabled_features}")
-
-    if monitor.enabled_features['protected_zone']:
-        zone_points = monitor.draw_zone_interactive(VIDEO_PATH)
-        if len(zone_points) >= 3:
-            monitor.protected_zone = Polygon(zone_points)
-        else:
-            logger.warning("Protected zone not properly defined - disabling feature")
-            monitor.enabled_features['protected_zone'] = False
-
-    cap = monitor.get_video_capture(VIDEO_PATH)
-    last_frame_time = time_module.time()
-
     try:
-        while True:
-            ret, frame = monitor.read_frame_with_retry(cap)
-            if not ret:
-                logger.error("Failed to read frame after multiple attempts")
-                break
+        if not args.camera_url:
+            raise ValueError("Camera URL is required")
+        if not args.features:
+            raise ValueError("Features are required")
+        
+        monitor = SecurityMonitor(args.camera_url, args.features)
+        print(f"Starting detection for camera stream: {args.camera_url}")
+        print(f"Enabled features: {monitor.enabled_features}")
+        
+        if monitor.enabled_features['protected_zone']:
+            zone_points = monitor.draw_zone_interactive()
+            if len(zone_points) >= 3:
+                monitor.protected_zone = Polygon(zone_points)
+    
+        monitor.run_detection()
+    except Exception as e:
+        print(f"Error starting detection: {str(e)}")
+        exit(1)
 
-            # Skip frames according to FRAME_SKIP setting
-            monitor.frame_counter += 1
-            if monitor.frame_counter % FRAME_SKIP != 0:
-                continue
-
-            # Calculate FPS
-            current_time = time_module.time()
-            fps = 1 / (current_time - last_frame_time)
-            last_frame_time = current_time
-
-            frame = cv2.resize(frame, (640, 360))
-
-            # Only detect people and cars (class 0 and 2 in COCO dataset)
-            results = model(frame, classes=[0, 2], verbose=False)
-
-            alerts = monitor.update_detections(frame, results)
-
-            for alert_type, message in alerts:
-                logger.info(f"ALERT: {message}")
-
-    except KeyboardInterrupt:
-        logger.info("Shutting down gracefully...")
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
+if __name__ == '__main__':
+    main()

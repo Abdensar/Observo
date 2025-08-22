@@ -4,6 +4,7 @@ const router = express.Router();
 const Camera = require('../models/Camera');
 const { spawn } = require('child_process');
 const axios = require('axios');
+const path = require('path');
 
 // Store active detection processes
 const detectionProcesses = new Map();
@@ -93,24 +94,32 @@ router.get('/:id/video_feed', async (req, res) => {
   try {
     const camera = await Camera.findById(req.params.id);
     if (!camera) {
-      return res.status(404).json({ error: 'Camera not found' });
+      return res.status(404).json({ message: 'Camera not found' });
     }
-
-    // Handle RTSP streams directly
-    if (camera.src.startsWith('rtsp')) {
-      return res.redirect(camera.src);
-    }
-
-    // Proxy RTSP through detection service
-    const response = await axios({
-      method: 'get',
-      url: `http://localhost:5002/video_feed`,
-      responseType: 'stream'
+    
+    res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
+    
+    const pythonProcess = spawn('python', [
+      path.join(__dirname, '../../ai/detect.py'),
+      '--source', camera.src,
+      '--features', camera.features.join(','),
+      '--camera_id', camera._id.toString()
+    ]);
+    
+    pythonProcess.stdout.on('data', (data) => {
+      res.write(data);
     });
     
-    response.data.pipe(res);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to get video feed' });
+    pythonProcess.stderr.on('data', (data) => {
+      console.error(`Detection error: ${data}`);
+    });
+    
+    req.on('close', () => {
+      pythonProcess.kill();
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -205,6 +214,27 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Start detection for a specific camera
+router.post('/:id/start-detection', async (req, res) => {
+  try {
+    const camera = await Camera.findById(req.params.id);
+    if (!camera) {
+      return res.status(404).json({ error: 'Camera not found' });
+    }
+
+    await startDetection(camera);
+    res.json({ 
+      message: 'Detection started',
+      videoFeed: `http://localhost/video_feed`
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      error: 'Failed to start detection',
+      details: err.message 
+    });
+  }
+});
+
 // Helper function to start detection
 async function startDetection(camera) {
   const cameraId = camera._id.toString();
@@ -217,14 +247,11 @@ async function startDetection(camera) {
 
   try {
     // Start via API
-    const response = await axios.post('http://localhost:5002/start', {
+    const response = await axios.post('http://localhost/start', {
       rtsp_url: camera.src,
-      camera_id: cameraId,
-      features: camera.features,
-      zone_points: camera.zone_points,
-      backend_url: process.env.BACKEND_URL || 'http://localhost:5000'
+      features: camera.features.join(',')
     }, {
-      timeout: 5000 // 5 second timeout
+      timeout: 5000
     });
     
     if (response.status !== 200) {
@@ -241,11 +268,9 @@ async function startDetection(camera) {
     }
 
     const process = spawn('python', [
-      'detect.py',
-      '--source', camera.src,
-      '--features', camera.features ? camera.features.join(',') : '',
-      '--camera_id', cameraId,
-      '--port', '5002'
+      path.join(__dirname, '../ai/detect.py'),
+      '--camera_url', camera.src,
+      '--features', camera.features.join(',')
     ]);
 
     // Handle process output
@@ -254,7 +279,7 @@ async function startDetection(camera) {
     });
 
     process.stderr.on('data', (data) => {
-      console.error(`Detection error: ${data}`);
+      console.log(`Detection log: ${data}`);
     });
 
     // Store process reference
