@@ -3,12 +3,13 @@ from ultralytics import YOLO
 from shapely.geometry import Point, Polygon, box as shapely_box
 import numpy as np
 import os
+import glob
 from datetime import datetime, time
 import time as time_module
 import logging
 import argparse
 import subprocess
-from flask import Flask, Response, request
+from flask import Flask, Response, request, send_from_directory
 from flask_cors import CORS
 import threading
 
@@ -354,6 +355,25 @@ class SecurityMonitor:
             cap.release()
             cv2.destroyAllWindows()
 
+    def process_frame(self, frame):
+        # Only detect people and cars (class 0 and 2 in COCO dataset)
+        results = self.model(frame, classes=[0, 2], verbose=False)
+        
+        if self.enabled_features['protected_zone'] and self.protected_zone:
+            exterior = np.array(self.protected_zone.exterior.coords[:-1], dtype=np.int32)
+            cv2.polylines(frame, [exterior], True, (0, 255, 255), 2)
+            cv2.putText(frame, "Protected Zone", 
+                       tuple(map(int, self.protected_zone.exterior.coords[0][:2])),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
+        alerts = self.update_detections(frame, results)
+        
+        for alert_type, message in alerts:
+            logger.info(f"ALERT: {message}")
+            self.save_alert(frame, alert_type, message)
+        
+        return frame
+
 def current_time_in_window(start, end):
     now = datetime.now().time()
     if start <= end:
@@ -361,25 +381,72 @@ def current_time_in_window(start, end):
     else:
         return now >= start or now <= end
 
-def convert_rtsp_to_hls(rtsp_url, output_dir):
-    """Convert RTSP stream to HLS using FFmpeg."""
-    hls_output = f"{output_dir}/output.m3u8"
-    command = [
-        "ffmpeg",
-        "-i", rtsp_url,
-        "-c:v", "libx264",
-        "-hls_time", "2",
-        "-hls_list_size", "3",
-        "-f", "hls",
-        hls_output
-    ]
+def convert_rtsp_to_hls(rtsp_url, output_dir, features):
+    """Convert RTSP to HLS while maintaining live stream with detection"""
+    os.makedirs(output_dir, exist_ok=True)
+    stream_name = "stream.m3u8"
+    output_path = os.path.join(output_dir, stream_name)
+    
     try:
-        subprocess.run(command, check=True)
-        logger.info(f"HLS stream created at {hls_output}")
-        return hls_output
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to convert RTSP to HLS: {e}")
+        monitor = SecurityMonitor(rtsp_url, features)
+        
+        # FFmpeg command to process RTSP and overlay detections
+        cmd = [
+            'ffmpeg',
+            '-i', rtsp_url,
+            '-vf', 'format=yuv420p',
+            '-c:v', 'libx264',
+            '-crf', '23',
+            '-preset', 'veryfast',
+            '-f', 'hls',
+            '-hls_time', '2',
+            '-hls_list_size', '5',
+            '-hls_flags', 'delete_segments',
+            output_path
+        ]
+        
+        # Start FFmpeg process
+        process = subprocess.Popen(cmd)
+        
+        # Start separate thread to process frames
+        def process_frames():
+            cap = monitor.get_video_capture()
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                monitor.process_frame(frame)
+                
+        threading.Thread(target=process_frames, daemon=True).start()
+        
+        return stream_name
+    except Exception as e:
+        logger.error(f"Failed to create live HLS with detection: {str(e)}")
         return None
+
+STREAMS_DIR = 'streams'
+
+@app.route('/stream/<path:filename>')
+def stream(filename):
+    """Serve HLS stream segments"""
+    try:
+        # Verify file exists before serving
+        filepath = os.path.join(STREAMS_DIR, filename)
+        if not os.path.exists(filepath):
+            logger.error(f"Stream file not found: {filepath}")
+            return "Stream not available", 404
+            
+        response = send_from_directory(
+            STREAMS_DIR, 
+            filename,
+            mimetype='application/vnd.apple.mpegurl' if filename.endswith('.m3u8') else 'video/MP2T'
+        )
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Access-Control-Allow-Origin'] = '*' 
+        return response
+    except Exception as e:
+        logger.error(f"Failed to serve stream {filename}: {e}")
+        return str(e), 500
 
 @app.route('/video_feed', methods=['GET'])
 def video_feed():
@@ -428,18 +495,40 @@ def main():
         if not args.features:
             raise ValueError("Features are required")
         
+        # Create necessary directories
+        os.makedirs(FRAME_SAVE_PATH, exist_ok=True)
+        os.makedirs(STREAMS_DIR, exist_ok=True)
+        
+        # Clear old stream files
+        for f in glob.glob(os.path.join(STREAMS_DIR, '*')):
+            try:
+                os.remove(f)
+            except Exception as e:
+                logger.warning(f"Could not remove old stream file {f}: {e}")
+        
+        logger.info(f"Starting detection for: {args.camera_url}")
+        
+        # Start HLS conversion
+        hls_output = convert_rtsp_to_hls(args.camera_url, STREAMS_DIR, args.features)
+        if not hls_output:
+            raise RuntimeError("Failed to start HLS conversion")
+            
+        logger.info(f"HLS stream available at: http://localhost:5002/stream/{hls_output}")
+        
         monitor = SecurityMonitor(args.camera_url, args.features)
-        print(f"Starting detection for camera stream: {args.camera_url}")
-        print(f"Enabled features: {monitor.enabled_features}")
         
         if monitor.enabled_features['protected_zone']:
             zone_points = monitor.draw_zone_interactive()
             if len(zone_points) >= 3:
                 monitor.protected_zone = Polygon(zone_points)
-    
-        monitor.run_detection()
+        
+        # Start detection thread
+        detection_thread = threading.Thread(target=monitor.run_detection, daemon=True)
+        detection_thread.start()
+        
+        app.run(host="0.0.0.0", port=5002, threaded=True)
     except Exception as e:
-        print(f"Error starting detection: {str(e)}")
+        logger.error(f"Error: {str(e)}")
         exit(1)
 
 if __name__ == '__main__':
