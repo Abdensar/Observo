@@ -8,9 +8,6 @@ from datetime import datetime, time
 import time as time_module
 import logging
 import argparse
-import subprocess
-from flask import Flask, Response, request, send_from_directory
-from flask_cors import CORS
 import threading
 
 # Configuration
@@ -22,7 +19,7 @@ FRAME_SKIP = 2
 # Default parameters
 MIN_ZONE_DWELL_TIME = 3
 MIN_LOITER_TIME = 10
-ALERT_TIME_WINDOW = (time(22, 0), time(5, 0))
+ALERT_TIME_WINDOW = (time(13, 0), time(22, 0))
 ALERT_COOLDOWN = 60  # 1 minute cooldown between alerts
 
 # Argument parsing
@@ -34,10 +31,6 @@ args = parser.parse_args()
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-app = Flask(__name__)
-# Enable CORS for the Flask app
-CORS(app)
 
 class SecurityMonitor:
     def __init__(self, video_path, features):
@@ -381,152 +374,21 @@ def current_time_in_window(start, end):
     else:
         return now >= start or now <= end
 
-def convert_rtsp_to_hls(rtsp_url, output_dir, features):
-    """Convert RTSP to HLS while maintaining live stream with detection"""
-    os.makedirs(output_dir, exist_ok=True)
-    stream_name = "stream.m3u8"
-    output_path = os.path.join(output_dir, stream_name)
-    
-    try:
-        monitor = SecurityMonitor(rtsp_url, features)
-        
-        # FFmpeg command to process RTSP and overlay detections
-        cmd = [
-            'ffmpeg',
-            '-i', rtsp_url,
-            '-vf', 'format=yuv420p',
-            '-c:v', 'libx264',
-            '-crf', '23',
-            '-preset', 'veryfast',
-            '-f', 'hls',
-            '-hls_time', '2',
-            '-hls_list_size', '5',
-            '-hls_flags', 'delete_segments',
-            output_path
-        ]
-        
-        # Start FFmpeg process
-        process = subprocess.Popen(cmd)
-        
-        # Start separate thread to process frames
-        def process_frames():
-            cap = monitor.get_video_capture()
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                monitor.process_frame(frame)
-                
-        threading.Thread(target=process_frames, daemon=True).start()
-        
-        return stream_name
-    except Exception as e:
-        logger.error(f"Failed to create live HLS with detection: {str(e)}")
-        return None
-
-STREAMS_DIR = 'streams'
-
-@app.route('/stream/<path:filename>')
-def stream(filename):
-    """Serve HLS stream segments"""
-    try:
-        # Verify file exists before serving
-        filepath = os.path.join(STREAMS_DIR, filename)
-        if not os.path.exists(filepath):
-            logger.error(f"Stream file not found: {filepath}")
-            return "Stream not available", 404
-            
-        response = send_from_directory(
-            STREAMS_DIR, 
-            filename,
-            mimetype='application/vnd.apple.mpegurl' if filename.endswith('.m3u8') else 'video/MP2T'
-        )
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Access-Control-Allow-Origin'] = '*' 
-        return response
-    except Exception as e:
-        logger.error(f"Failed to serve stream {filename}: {e}")
-        return str(e), 500
-
-@app.route('/video_feed', methods=['GET'])
-def video_feed():
-    def generate():
-        while True:
-            with monitor.frame_lock:
-                if monitor.current_frame is None:
-                    time_module.sleep(0.1)
-                    continue
-                
-                frame = monitor.current_frame.copy()
-            
-            # Encode frame as JPEG
-            _, buffer = cv2.imencode('.jpg', frame)
-            frame_bytes = buffer.tobytes()
-
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            
-            time_module.sleep(0.033)  # ~30 FPS
-
-    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-@app.route('/status', methods=['GET'])
-def get_status():
-    """Endpoint to get security monitor status"""
-    camera_id = request.args.get('camera_id')
-    
-    # Filter alerts for this specific camera if camera_id is provided
-    if camera_id:
-        camera_alerts = [alert for alert in monitor.alerts if alert.get('camera_id') == camera_id]
-    else:
-        camera_alerts = monitor.alerts
-    
-    return {
-        "activeAlerts": len(camera_alerts),
-        "peopleCount": len([id for id in monitor.person_timers.keys() if id.startswith('zone_')]),
-        "currentAlerts": [alert['message'] for alert in camera_alerts[-5:]],  # Last 5 alerts
-        "detectionActive": True
-    }
-
 def main():
     try:
         if not args.camera_url:
             raise ValueError("Camera URL is required")
         if not args.features:
             raise ValueError("Features are required")
-        
-        # Create necessary directories
         os.makedirs(FRAME_SAVE_PATH, exist_ok=True)
-        os.makedirs(STREAMS_DIR, exist_ok=True)
-        
-        # Clear old stream files
-        for f in glob.glob(os.path.join(STREAMS_DIR, '*')):
-            try:
-                os.remove(f)
-            except Exception as e:
-                logger.warning(f"Could not remove old stream file {f}: {e}")
-        
         logger.info(f"Starting detection for: {args.camera_url}")
-        
-        # Start HLS conversion
-        hls_output = convert_rtsp_to_hls(args.camera_url, STREAMS_DIR, args.features)
-        if not hls_output:
-            raise RuntimeError("Failed to start HLS conversion")
-            
-        logger.info(f"HLS stream available at: http://localhost:5002/stream/{hls_output}")
-        
+        global monitor
         monitor = SecurityMonitor(args.camera_url, args.features)
-        
         if monitor.enabled_features['protected_zone']:
             zone_points = monitor.draw_zone_interactive()
             if len(zone_points) >= 3:
                 monitor.protected_zone = Polygon(zone_points)
-        
-        # Start detection thread
-        detection_thread = threading.Thread(target=monitor.run_detection, daemon=True)
-        detection_thread.start()
-        
-        app.run(host="0.0.0.0", port=5002, threaded=True)
+        monitor.run_detection()
     except Exception as e:
         logger.error(f"Error: {str(e)}")
         exit(1)
