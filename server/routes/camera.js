@@ -6,86 +6,36 @@ const { spawn } = require('child_process');
 const axios = require('axios');
 const path = require('path');
 
-// Store active detection processes
-const detectionProcesses = new Map();
-
-// Create camera and start detection
 router.post('/', async (req, res) => {
   try {
-    const { name, status, src, features, zone_points } = req.body;
+    const { name, status, src, features, user } = req.body;
 
     // Validation
     if (!name || !src) {
       return res.status(400).json({ error: 'Name and URL required' });
     }
 
-    // Create camera
+    // Only allow valid feature values (as per model)
+    const allowedFeatures = ['1', '2', '3'];
+    const filteredFeatures = (features || []).filter(f => allowedFeatures.includes(f));
+
+    // Create camera strictly matching the schema
     const camera = new Camera({
       name,
-      status,
+      status: status || 'active',
       src,
-      features: features || [],
-      zone_points: zone_points || []
+      features: filteredFeatures,
+      user: user || undefined,
+      createdAt: new Date(),
+      updatedAt: new Date()
     });
     await camera.save();
-
-    // Start detection and only then send response
-    try {
-      await startDetection(camera);
-      res.status(201).json(camera);
-    } catch (detectErr) {
-      console.error('Detection failed:', detectErr);
-      // Still return success since camera was created
-      res.status(201).json({
-        ...camera.toObject(),
-        warning: 'Camera created but detection failed'
-      });
-    }
+    res.status(201).json(camera);
   } catch (err) {
-    console.error('Camera creation failed:', err);
     res.status(500).json({ 
       error: 'Server error', 
       details: err.message 
     });
-  }
-});
-
-// Start detection process
-router.post('/api/camera/:id/detection', async (req, res) => {
-  try {
-    const camera = await Camera.findById(req.params.id);
-    if (!camera) {
-      return res.status(404).json({ error: 'Camera not found' });
-    }
-
-    await startDetection(camera);
-    res.json({ message: 'Detection started' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to start detection' });
-  }
-});
-
-// Stop detection
-router.delete('/api/camera/:id/detection', async (req, res) => {
-  try {
-    const cameraId = req.params.id;
-    
-    // Stop via API
-    try {
-      await axios.post(`http://localhost:5002/stop`);
-    } catch (err) {
-      console.error('Error stopping detection via API:', err.message);
-    }
-    
-    // Stop local process if any
-    if (detectionProcesses.has(cameraId)) {
-      detectionProcesses.get(cameraId).kill();
-      detectionProcesses.delete(cameraId);
-    }
-    
-    res.json({ message: 'Detection stopped' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to stop detection' });
   }
 });
 
@@ -225,7 +175,7 @@ router.post('/:id/start-detection', async (req, res) => {
     await startDetection(camera);
     res.json({ 
       message: 'Detection started',
-      videoFeed: `http://localhost/video_feed`
+      video_feed_url: `${req.protocol}://${req.get('host')}/video_feed/${camera._id}`
     });
   } catch (err) {
     res.status(500).json({ 
@@ -239,12 +189,6 @@ router.post('/:id/start-detection', async (req, res) => {
 async function startDetection(camera) {
   const cameraId = camera._id.toString();
   
-  // Stop existing process if any
-  if (detectionProcesses.has(cameraId)) {
-    detectionProcesses.get(cameraId).kill();
-    detectionProcesses.delete(cameraId);
-  }
-
   try {
     // Start via API
     const response = await axios.post('http://localhost/start', {
@@ -281,9 +225,6 @@ async function startDetection(camera) {
     process.stderr.on('data', (data) => {
       console.log(`Detection log: ${data}`);
     });
-
-    // Store process reference
-    detectionProcesses.set(cameraId, process);
   }
 }
 

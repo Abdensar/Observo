@@ -28,7 +28,7 @@ FRAME_SKIP = 2
 # Default parameters
 MIN_ZONE_DWELL_TIME = 3
 MIN_LOITER_TIME = 10
-ALERT_TIME_WINDOW = (time(13, 0), time(22, 0))
+ALERT_TIME_WINDOW = (time(22, 0), time(21, 0))
 ALERT_COOLDOWN = 60  # 1 minute cooldown between alerts
 
 # Argument parsing

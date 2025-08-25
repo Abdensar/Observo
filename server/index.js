@@ -30,57 +30,5 @@ app.get('/api/test-auth', auth, (req, res) => {
   });
 });
 
-app.post('/video_feed', (req, res) => {
-  const { rtsp_url } = req.body;
-  if (!rtsp_url) {
-    return res.status(400).json({ error: 'RTSP URL is required' });
-  }
-
-  const pythonProcess = spawn('python', ['./ai/detect.py', rtsp_url]);
-
-  pythonProcess.stdin.write(JSON.stringify({ rtsp_url }));
-  pythonProcess.stdin.end();
-
-  res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
-
-  pythonProcess.stdout.on('data', (data) => {
-    res.write(data);
-  });
-
-  pythonProcess.stderr.on('data', (data) => {
-    console.error(`Python error: ${data}`);
-  });
-
-  pythonProcess.on('close', (code) => {
-    console.log(`Python process exited with code ${code}`);
-    res.end();
-  });
-});
-
-app.post('/start_detection', (req, res) => {
-  const { rtsp_url, features } = req.body;
-
-  if (!rtsp_url) {
-    return res.status(400).json({ error: 'RTSP URL is required' });
-  }
-
-  const featureArgs = features ? features.join(',') : '';
-  const pythonProcess = spawn('python', ['ai/detect.py', rtsp_url, '--features', featureArgs]);
-
-  pythonProcess.stdout.on('data', (data) => {
-    console.log(`Python output: ${data}`);
-  });
-
-  pythonProcess.stderr.on('data', (data) => {
-    console.error(`Python error: ${data}`);
-  });
-
-  pythonProcess.on('close', (code) => {
-    console.log(`Python process exited with code ${code}`);
-  });
-
-  res.status(200).json({ message: 'Detection started' });
-});
-
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

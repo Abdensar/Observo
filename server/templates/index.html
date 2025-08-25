@@ -1,0 +1,56 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Security Monitor</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .container { display: flex; }
+            .video-container { flex: 2; }
+            .alerts-container { flex: 1; margin-left: 20px; }
+            .alert { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+            .alert img { max-width: 100%; }
+        </style>
+    </head>
+    <body>
+        <h1>Live Security Monitor</h1>
+        <div class="container">
+            <div class="video-container">
+                <h2>Live Feed</h2>
+                <img src="{{ url_for('video_feed') }}" width="640" height="360" />
+            </div>
+            <div class="alerts-container">
+                <h2>Recent Alerts</h2>
+                <div id="alerts"></div>
+            </div>
+        </div>
+
+        <script>
+            function updateAlerts() {
+                fetch('/alerts')
+                    .then(response => response.json())
+                    .then(alerts => {
+                        const alertsContainer = document.getElementById('alerts');
+                        alertsContainer.innerHTML = '';
+                        
+                        alerts.slice(-10).reverse().forEach(alert => {
+                            const alertDiv = document.createElement('div');
+                            alertDiv.className = 'alert';
+                            alertDiv.innerHTML = `
+                                <strong>${alert.type}</strong><br>
+                                ${alert.message}<br>
+                                ${alert.timestamp}<br>
+                                <img src="/static/${alert.image}" alt="Alert image">
+                            `;
+                            alertsContainer.appendChild(alertDiv);
+                        });
+                    });
+            }
+            
+            // Update alerts every 5 seconds
+            setInterval(updateAlerts, 5000);
+            updateAlerts(); // Initial load
+        </script>
+    </body>
+    </html>
+    
