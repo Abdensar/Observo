@@ -58,23 +58,10 @@ const CameraLive = () => {
             >
               <div className='w-full h-48 bg-gray-200 rounded-xl flex items-center justify-center overflow-hidden mb-3'>
                 {camera?.status === 'active' ? (
-                  <video 
-                    src={`/api/cameras/${camera._id}/video_feed`}
-                    ref={videoRef}
-                    autoPlay
-                    loop
-                    muted={muted}
-                    playsInline
+                  <img
+                    src={`http://localhost:5000/api/cameras/${camera._id}/video_feed`}
+                    alt="Live Camera"
                     className='w-full h-full object-cover rounded-xl'
-                    onError={(e) => {
-                      console.error('Video load error:', e);
-                      setError('Failed to load video feed');
-                      e.target.style.display = 'none';
-                      const placeholder = document.createElement('div');
-                      placeholder.className = 'w-full h-full bg-gray-800 text-white flex items-center justify-center';
-                      placeholder.textContent = 'Video feed unavailable';
-                      e.target.parentNode.appendChild(placeholder);
-                    }}
                   />
                 ) : (
                   <span className='text-gray-400 text-lg'>Offline</span>

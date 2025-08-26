@@ -317,6 +317,12 @@ def video_feed():
     return flask.Response(gen_frames(), 
                           mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/video_feed/<camera_id>')
+def video_feed_camera(camera_id):
+    # For now, fallback to the default monitor (single camera)
+    return flask.Response(gen_frames(), 
+                         mimetype='multipart/x-mixed-replace; boundary=frame')
+                         
 @app.route('/alerts')
 def get_alerts():
     global monitor

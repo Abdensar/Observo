@@ -72,10 +72,7 @@ const CameraSettings = () => {
 
         // Start detection for the camera
         try {
-          await api.post(`/api/cameras/${editId}/detection`, {
-            rtsp_url: form.src,
-            features: features
-          });
+          await api.post(`/api/cameras/${editId}/start-detection`);
         } catch (detectionErr) {
           console.error('Detection start failed:', detectionErr);
           // Still update the UI since the camera was updated
@@ -97,10 +94,7 @@ const CameraSettings = () => {
 
         // Start detection for the new camera
         try {
-          await api.post(`/api/cameras/${res.data._id}/detection`, {
-            rtsp_url: form.src,
-            features: features
-          });
+          await api.post(`/api/cameras/${res.data._id}/start-detection`);
         } catch (detectionErr) {
           console.error('Detection start failed:', detectionErr);
           // Still update the UI since the camera was created

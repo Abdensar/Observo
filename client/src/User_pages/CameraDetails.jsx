@@ -150,30 +150,11 @@ const CameraDetails = () => {
           <div className='mb-6 flex flex-col items-center'>
             <div className='w-full h-80 bg-gray-200 rounded-xl flex items-center justify-center overflow-hidden mb-3 relative'>
               {camera?.status === 'active' ? (
-                <>
-                  <video 
-                    src={camera.src.startsWith('http') ? camera.src : `/api/camera/${camera._id}/video_feed`}
-                    ref={videoRef}
-                    autoPlay
-                    loop
-                    muted={muted}
-                    playsInline
-                    className='w-full h-full object-cover rounded-xl'
-                    onError={(e) => {
-                      console.error('Failed to load video feed');
-                      e.target.style.display = 'none';
-                      setError('Failed to load video feed');
-                    }}
-                  />
-                  <div className='absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-4 bg-black bg-opacity-50 rounded-full px-4 py-2'>
-                    <button onClick={handlePlayPause} className='text-white hover:text-blue-300'>
-                      {playing ? 'Pause' : 'Play'}
-                    </button>
-                    <button onClick={handleFullscreen} className='text-white hover:text-blue-300'>
-                      {fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                    </button>
-                  </div>
-                </>
+                 <img
+                 src={`http://localhost:5000/api/cameras/${camera._id}/video_feed`}
+                 alt="Live Camera"
+                 className='w-full h-full object-cover rounded-xl'
+               />
               ) : (
                 <span className='text-gray-400 text-lg'>Offline</span>
               )}

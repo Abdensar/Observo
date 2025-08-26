@@ -5,6 +5,7 @@ const Camera = require('../models/Camera');
 const { spawn } = require('child_process');
 const axios = require('axios');
 const path = require('path');
+const http = require('http');
 
 router.post('/', async (req, res) => {
   try {
@@ -39,42 +40,65 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Get camera video feed
+// Proxy video feed from Python backend
 router.get('/:id/video_feed', async (req, res) => {
-  try {
-    const camera = await Camera.findById(req.params.id);
-    if (!camera) {
-      return res.status(404).json({ message: 'Camera not found' });
-    }
-    
-    res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
-    
-    const pythonProcess = spawn('python', [
-      path.join(__dirname, '../../ai/detect.py'),
-      '--source', camera.src,
-      '--features', camera.features.join(','),
-      '--camera_id', camera._id.toString()
-    ]);
-    
-    pythonProcess.stdout.on('data', (data) => {
-      res.write(data);
+  const cameraId = req.params.id;
+  const pythonUrl = `http://127.0.0.1:5000/video_feed/${cameraId}`;
+
+  // Set headers for MJPEG stream
+  res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
+
+  http.get(pythonUrl, (pyRes) => {
+    pyRes.on('data', (chunk) => {
+      res.write(chunk);
     });
-    
-    pythonProcess.stderr.on('data', (data) => {
-      console.error(`Detection error: ${data}`);
+    pyRes.on('end', () => {
+      res.end();
     });
-    
-    req.on('close', () => {
-      pythonProcess.kill();
+    pyRes.on('error', (err) => {
+      res.status(502).end('Python backend error');
     });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
+  }).on('error', (err) => {
+    res.status(502).end('Could not connect to Python backend');
+  });
 });
 
+// // Get camera video feed
+// router.get('/:id/video_feed_original', async (req, res) => {
+//   try {
+//     const camera = await Camera.findById(req.params.id);
+//     if (!camera) {
+//       return res.status(404).json({ message: 'Camera not found' });
+//     }
+    
+//     res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
+    
+//     const pythonProcess = spawn('python', [
+//       path.join(__dirname, '../../ai/detect.py'),
+//       '--source', camera.src,
+//       '--features', camera.features.join(','),
+//       '--camera_id', camera._id.toString()
+//     ]);
+    
+//     pythonProcess.stdout.on('data', (data) => {
+//       res.write(data);
+//     });
+    
+//     pythonProcess.stderr.on('data', (data) => {
+//       console.error(`Detection error: ${data}`);
+//     });
+    
+//     req.on('close', () => {
+//       pythonProcess.kill();
+//     });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ message: 'Server error' });
+//   }
+// });
+
 // Get camera alerts
-router.get('/api/camera/:id/alerts', async (req, res) => {
+router.get('/:id/alerts', async (req, res) => {
   try {
     const camera = await Camera.findById(req.params.id);
     if (!camera) {
@@ -175,7 +199,7 @@ router.post('/:id/start-detection', async (req, res) => {
     await startDetection(camera);
     res.json({ 
       message: 'Detection started',
-      video_feed_url: `${req.protocol}://${req.get('host')}/video_feed/${camera._id}`
+      video_feed_url: `${req.protocol}://${req.get('host')}/api/cameras/${camera._id}/video_feed`
     });
   } catch (err) {
     res.status(500).json({ 
