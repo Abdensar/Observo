@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from 'react';
 import Header from '../components/U_Header';
 import api from '../utils/api';
@@ -11,8 +9,6 @@ const filterOptions = [
 ];
 
 const Alerts = () => {
-
-
   const [statusFilter, setStatusFilter] = useState('unseen');
   const [cameraFilter, setCameraFilter] = useState('all');
   const [modalAlert, setModalAlert] = useState(null);
@@ -21,12 +17,14 @@ const Alerts = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Fetch alerts and cameras on mount and periodically
   useEffect(() => {
+    let intervalId;
     const fetchData = async () => {
       try {
         const [alertsRes, camerasRes] = await Promise.all([
-          api.get('/alerts'),
-          api.get('/camera')
+          api.get('/api/alerts'),
+          api.get('/api/cameras')
         ]);
         setAlerts(alertsRes.data);
         setCameras(camerasRes.data);
@@ -36,6 +34,8 @@ const Alerts = () => {
       setLoading(false);
     };
     fetchData();
+    intervalId = setInterval(fetchData, 5000); // Fetch every 5 seconds
+    return () => clearInterval(intervalId);
   }, []);
 
   const filteredAlerts = alerts.filter(alert => {
@@ -48,7 +48,7 @@ const Alerts = () => {
   const openModal = async (alertId) => {
     try {
       // Mark as seen in backend
-      await api.patch(`/alerts/${alertId}/seen`);
+      await api.patch(`/api/alerts/${alertId}/seen`);
       setAlerts(prev => prev.map(a => a._id === alertId ? { ...a, seen: true } : a));
       setModalAlert(alerts.find(a => a._id === alertId));
     } catch (err) {
@@ -56,6 +56,9 @@ const Alerts = () => {
     }
   };
   const closeModal = () => setModalAlert(null);
+
+  // Helper to get alert image URL
+  const getAlertImageUrl = (alert) => alert?._id ? `http://localhost:5000/api/alerts/${alert._id}/image` : null;
 
   return (
     <>
@@ -108,7 +111,7 @@ const Alerts = () => {
                       <span className={`text-lg ${!alert.seen ? 'font-bold text-red-700' : 'text-gray-700'}`}>{alert.message}</span>
                     </div>
                     <div className='flex flex-col sm:flex-row sm:items-center sm:space-x-6 mt-2 sm:mt-0'>
-                      <span className='text-xs text-gray-500'>{new Date(alert.createdAt).toLocaleString()}</span>
+                      <span className='text-xs text-gray-500'>{new Date(alert.date).toLocaleString()}</span>
                       <span className={`mt-1 sm:mt-0 px-3 py-1 text-xs rounded-full ${alert.seen ? 'bg-gray-300 text-gray-700' : 'bg-red-500 text-white'}`}>{alert.seen ? 'Seen' : 'Unseen'}</span>
                       <span className='mt-1 sm:mt-0 px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-800'>{alert.camera?.name || 'Unknown'}</span>
                     </div>
@@ -123,14 +126,14 @@ const Alerts = () => {
             <div className='bg-white rounded-3xl shadow-2xl p-8 max-w-lg w-full relative flex flex-col items-center'>
               <button className='absolute top-4 right-4 text-gray-500 hover:text-red-600 text-2xl' onClick={closeModal}>&times;</button>
               <h3 className='text-2xl font-bold text-blue-800 mb-4'>Alert Details</h3>
-              {modalAlert.img && (
-                <img src={modalAlert.img} alt='Alert' className='w-full h-48 object-cover rounded-xl mb-4 border-4 border-blue-200'/>
-              )}
+              {getAlertImageUrl(modalAlert) ? (
+                <img src={getAlertImageUrl(modalAlert)} alt='Alert' className='w-full h-48 object-cover rounded-xl mb-4 border-4 border-blue-200'/>
+              ) : null}
               <div className='w-full flex flex-col gap-2 mb-2'>
                 <span className='font-semibold text-blue-800'>Message:</span>
                 <span className='text-gray-700'>{modalAlert.message}</span>
                 <span className='font-semibold text-blue-800'>Date:</span>
-                <span className='text-gray-700'>{new Date(modalAlert.createdAt).toLocaleString()}</span>
+                <span className='text-gray-700'>{new Date(modalAlert.date).toLocaleString()}</span>
                 <span className='font-semibold text-blue-800'>Camera:</span>
                 <span className='text-gray-700'>{modalAlert.camera?.name || 'Unknown'}</span>
                 <span className='font-semibold text-blue-800'>Status:</span>

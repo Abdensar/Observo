@@ -7,7 +7,10 @@ const alertSchema = new Schema({
   seen: { type: Boolean, default: false },
   user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   camera: { type: Schema.Types.ObjectId, ref: 'Camera', required: true },
-  img: { type: String },
+  img: { 
+    data: { type: Buffer },
+    contentType: { type: String }
+  },
 });
 
 module.exports = mongoose.model('Alert', alertSchema);

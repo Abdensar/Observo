@@ -84,7 +84,7 @@ const Dashboard = () => {
                   {unseenAlerts.slice(0, 5).map(alert => (
                     <li key={alert._id} className='py-2 flex justify-between items-center'>
                       <span className='text-gray-700'>{alert.message}</span>
-                      <span className='text-xs text-gray-500'>{new Date(alert.createdAt).toLocaleString()}</span>
+                      <span className='text-xs text-gray-500'>{new Date(alert.date).toLocaleString()}</span>
                     </li>
                   ))}
                   {unseenAlerts.length === 0 && (

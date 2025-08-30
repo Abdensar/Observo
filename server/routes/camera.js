@@ -12,8 +12,8 @@ router.post('/', async (req, res) => {
     const { name, status, src, features, user } = req.body;
 
     // Validation
-    if (!name || !src) {
-      return res.status(400).json({ error: 'Name and URL required' });
+    if (!name || !src || !user) {
+      return res.status(400).json({ error: 'Name, URL, and user are required' });
     }
 
     // Only allow valid feature values (as per model)
@@ -26,7 +26,7 @@ router.post('/', async (req, res) => {
       status: status || 'active',
       src,
       features: filteredFeatures,
-      user: user || undefined,
+      user,
       createdAt: new Date(),
       updatedAt: new Date()
     });
@@ -238,7 +238,9 @@ async function startDetection(camera) {
     const process = spawn('python', [
       path.join(__dirname, '../ai/detect.py'),
       '--camera_url', camera.src,
-      '--features', camera.features.join(',')
+      '--features', camera.features.join(','),
+      '--camera_id', camera._id.toString(),
+      '--user_id', camera.user ? camera.user.toString() : 'PLACE_A_VALID_USER_ID_HERE'
     ]);
 
     // Handle process output

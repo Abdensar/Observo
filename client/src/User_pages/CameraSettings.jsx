@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import Header from '../components/U_Header';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../utils/api';
+import { UserContext } from '../context/UserContext';
+
 const CameraSettings = () => {
   const [cameras, setCameras] = useState([]);
   const [form, setForm] = useState({ name: '', status: 'active', src: '' });
@@ -11,6 +13,8 @@ const CameraSettings = () => {
   const [error, setError] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useContext(UserContext);
+
   useEffect(() => {
     const fetchCameras = async () => {
       try {
@@ -24,6 +28,7 @@ const CameraSettings = () => {
     };
     fetchCameras();
   }, []);
+
   useEffect(() => {
     if (location.state && location.state.camera) {
       setForm({
@@ -39,6 +44,7 @@ const CameraSettings = () => {
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -62,7 +68,8 @@ const CameraSettings = () => {
       name: form.name,
       status: form.status,
       src: form.src,
-      features: features
+      features: features,
+      user: user?._id // Always include user id
     };
 
     if (editing) {
@@ -108,8 +115,7 @@ const CameraSettings = () => {
         setError(err.response?.data?.error || 'Failed to add camera.');
       }
     }
-  }
-
+  };
 
   const handleEdit = (cam) => {
     setForm({ name: cam.name, status: cam.status, src: cam.src });
@@ -131,9 +137,11 @@ const CameraSettings = () => {
       setError('Failed to delete camera.');
     }
   };
+
   if (loading) {
     return <div className='text-center text-xl text-blue-800 pt-32'>Loading cameras...</div>;
   }
+
   return (
     <>
       <Header/>
@@ -256,4 +264,5 @@ const CameraSettings = () => {
     </>
   );
 };
+
 export default CameraSettings;

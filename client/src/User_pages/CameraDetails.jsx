@@ -22,7 +22,7 @@ const CameraDetails = () => {
       try {
         let camId = camera?._id || params.id;
         if (!camera && camId) {
-          const camRes = await api.get(`/camera/${camId}`);
+          const camRes = await api.get(`/api/cameras/${camId}`);
           setCamera(camRes.data);
         }
 
@@ -54,12 +54,9 @@ const CameraDetails = () => {
 
     const fetchAlerts = async () => {
       try {
-        const alertsRes = await api.get(`/api/cameras/${camera._id}/alerts`);
-        if (alertsRes.data && alertsRes.data.alerts) {
-          setAlerts(alertsRes.data.alerts);
-        } else {
-          console.error('Invalid alerts response format');
-        }
+        const alertsRes = await api.get(`/api/alerts`);
+        const cameraAlerts = alertsRes.data.filter(a => a.camera?._id === camera._id);
+        setAlerts(cameraAlerts);
       } catch (err) {
         console.error('Failed to fetch alerts:', err);
         setAlerts([]); // Reset to empty array on error
@@ -126,6 +123,9 @@ const CameraDetails = () => {
       }
     }
   };
+
+  // Helper to get alert image URL
+  const getAlertImageUrl = (alert) => alert?._id ? `http://localhost:5000/api/alerts/${alert._id}/image` : null;
 
   // Mark alert as seen when opening modal
   function handleAlertClick(alert) {
@@ -198,7 +198,7 @@ const CameraDetails = () => {
                   >
                     <span className='text-red-700 font-bold'>{alert.message}</span>
                     <span className='ml-2 text-xs text-gray-500'>
-                      ({new Date(alert.createdAt).toLocaleString()})
+                      ({new Date(alert.date).toLocaleString()})
                     </span>
                   </li>
                 ))
@@ -213,9 +213,9 @@ const CameraDetails = () => {
                       &times;
                     </button>
                     <h4 className='text-xl font-bold text-blue-800 mb-4'>Alert Details</h4>
-                    {selectedAlert.image ? (
+                    {getAlertImageUrl(selectedAlert) ? (
                       <img 
-                        src={selectedAlert.image} 
+                        src={getAlertImageUrl(selectedAlert)} 
                         alt='Alert' 
                         className='w-full h-64 object-contain rounded-xl mb-4 border border-gray-200'
                       />
@@ -230,11 +230,7 @@ const CameraDetails = () => {
                     </div>
                     <div className='mb-2'>
                       <span className='font-semibold text-blue-800'>Time:</span>
-                      <span className='ml-2'>{new Date(selectedAlert.timestamp).toLocaleString()}</span>
-                    </div>
-                    <div className='mb-2'>
-                      <span className='font-semibold text-blue-800'>Type:</span>
-                      <span className='ml-2'>{selectedAlert.type}</span>
+                      <span className='ml-2'>{selectedAlert.date ? new Date(selectedAlert.date).toLocaleString() : 'N/A'}</span>
                     </div>
                   </div>
                 </div>

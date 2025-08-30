@@ -10,6 +10,8 @@ import logging
 import argparse
 import threading
 import flask
+import io
+import requests
 
 # Flask app and routes
 app = flask.Flask(__name__)
@@ -34,6 +36,8 @@ ALERT_COOLDOWN = 60  # 1 minute cooldown between alerts
 # Argument parsing
 parser = argparse.ArgumentParser(description='Security Monitoring')
 parser.add_argument('--camera_url', required=True, help='RTSP stream URL')
+parser.add_argument('--camera_id', required=True, help='MongoDB Camera ObjectID')
+parser.add_argument('--user_id', required=True, help='MongoDB User ObjectID')
 parser.add_argument('--features', required=True, help='Comma-separated feature codes (1,2,3)')
 args = parser.parse_args()
 
@@ -204,28 +208,43 @@ class SecurityMonitor:
 
     def save_alert(self, frame, alert_type, message):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        os.makedirs(FRAME_SAVE_PATH, exist_ok=True)
-        fname = f"{FRAME_SAVE_PATH}/{alert_type}_{timestamp}.jpg"
-        
-        # Add alert text to the frame before saving
+        # Add alert text to the frame before sending
         alert_frame = frame.copy()
         cv2.putText(alert_frame, f"{alert_type}: {message}", (10, 30),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.alert_colors.get(alert_type, (0, 0, 255)), 2)
         cv2.putText(alert_frame, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 60),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        
-        cv2.imwrite(fname, alert_frame)
-        
+
+        # Encode frame as JPEG in memory
+        _, buffer = cv2.imencode('.jpg', alert_frame)
+        img_bytes = io.BytesIO(buffer)
+
+        # Use IDs from args
+        data = {
+            'message': message,
+            'camera': args.camera_id,
+            'user': args.user_id,
+        }
+        files = {
+            'img': ('alert.jpg', img_bytes, 'image/jpeg')
+        }
+
+        # Send POST request to backend
+        try:
+            resp = requests.post('http://localhost:5000/api/alerts', data=data, files=files)
+            resp.raise_for_status()
+            logger.info(f"Alert sent to backend: {resp.json()}")
+        except Exception as e:
+            logger.error(f"Failed to send alert to backend: {e}")
+
         alert_data = {
             "type": alert_type,
             "message": message,
-            "image": fname,
+            "image": "sent_to_backend",
             "timestamp": timestamp
         }
-        
         self.alerts.append(alert_data)
-        logger.info(f"Alert screenshot saved: {fname}")
-        return fname
+        return "sent_to_backend"
 
     def run_detection(self):
         """Main detection loop"""
