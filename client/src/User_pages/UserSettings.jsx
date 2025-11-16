@@ -14,9 +14,6 @@ const UserSettings = () => {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
-  const [hlsUrl, setHlsUrl] = useState('');
-  const [player, setPlayer] = useState(null);
-  const [rtspUrl, setRtspUrl] = useState('');
 
   const handleChange = e => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -53,7 +50,6 @@ const UserSettings = () => {
         setError(data.error || 'Failed to update settings.');
       } else {
         setUser(data.user);
-        setHlsUrl(data.hlsUrl); // Assuming the server returns the HLS URL
         setSuccess(true);
       }
     } catch (err) {
@@ -61,45 +57,6 @@ const UserSettings = () => {
     }
     setSaving(false);
   };
-
-  const handleRtspSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const response = await fetch('http://localhost:5001/set_rtsp_url', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ rtspUrl }),
-      });
-      if (response.ok) {
-        setSuccess(true);
-        setError('');
-      } else {
-        setError('Failed to set RTSP URL.');
-      }
-    } catch (err) {
-      setError('Server error.');
-    }
-  };
-
-  useEffect(() => {
-    // Fetch and display the RTSP URL being processed by the Flask backend
-    const fetchRtspUrl = async () => {
-      try {
-        const response = await fetch('http://localhost:5001/rtsp_url');
-        const rtspUrl = await response.text();
-        const videoContainer = document.getElementById('video-container');
-        if (videoContainer) {
-          videoContainer.innerHTML = `<p>${rtspUrl}</p>`;
-        }
-      } catch (error) {
-        console.error('Error fetching RTSP URL:', error);
-      }
-    };
-
-    fetchRtspUrl();
-  }, []);
 
   return (
     <>
@@ -135,28 +92,6 @@ const UserSettings = () => {
             <div className='flex justify-center'>
               <button type='submit' disabled={saving} className={`bg-blue-700 text-white px-8 py-2 rounded-full font-bold text-lg shadow-md transition duration-300 transform hover:scale-105 ${saving ? 'opacity-60 cursor-not-allowed' : 'hover:bg-blue-900'}`}>
                 {saving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </form>
-          <div id='video-container' className='mt-8'></div>
-          <form className='space-y-6' onSubmit={handleRtspSubmit}>
-            <div>
-              <label className='block text-lg font-semibold text-gray-700 mb-2'>RTSP URL</label>
-              <input
-                type='text'
-                name='rtspUrl'
-                value={rtspUrl}
-                onChange={(e) => setRtspUrl(e.target.value)}
-                className='w-full px-4 py-2 rounded-xl border-2 border-blue-200 focus:border-blue-500 outline-none transition duration-200'
-                required
-              />
-            </div>
-            <div className='flex justify-center'>
-              <button
-                type='submit'
-                className='bg-blue-700 text-white px-8 py-2 rounded-full font-bold text-lg shadow-md transition duration-300 transform hover:scale-105 hover:bg-blue-900'
-              >
-                Submit RTSP URL
               </button>
             </div>
           </form>

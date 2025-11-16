@@ -38,7 +38,7 @@ const CameraLive = () => {
   }
   return (
     <>
-      <Header/>
+      <Header className='z-10' />
       <section className='bg-gradient-to-tr to-blue-300 from-gray-700 min-h-screen flex flex-col items-center pt-20'>
         <div className='w-full max-w-6xl flex justify-between items-center mb-8 px-4'>
           <h2 className='text-3xl font-bold text-white animate-fade-in'>Live Cameras</h2>
@@ -56,7 +56,7 @@ const CameraLive = () => {
               key={camera._id}
               className={`rounded-2xl shadow-lg bg-white bg-opacity-90 p-4 flex flex-col items-center transition-transform duration-300 hover:scale-105`}
             >
-              <div className='w-full h-48 bg-gray-200 rounded-xl flex items-center justify-center overflow-hidden mb-3'>
+              <div className='w-full h-48 bg-gray-200 rounded-xl flex items-center justify-center overflow-hidden mb-3 '>
                 {camera?.status === 'active' ? (
                   <img
                     src={`http://localhost:5000/api/cameras/${camera._id}/video_feed`}

@@ -145,14 +145,14 @@ const CameraDetails = () => {
     <>
       <Header />
       <section className='bg-gradient-to-tr to-blue-300 from-gray-700 min-h-screen flex flex-col items-center pt-20'>
-        <div className='w-full max-w-3xl bg-white bg-opacity-90 rounded-3xl shadow-lg p-8 mt-8 animate-fade-in'>
+        <div className='w-full max-w-3xl bg-white bg-opacity-90 rounded-3xl shadow-lg p-8 mt-8 animate-fade-in '>
           <h2 className='text-3xl font-bold text-blue-800 mb-6 text-center'>Camera Details</h2>
           <div className='mb-6 flex flex-col items-center'>
-            <div className='w-full h-80 bg-gray-200 rounded-xl flex items-center justify-center overflow-hidden mb-3 relative'>
+            <div className='w-full h-80 bg-gray-200 rounded-xl flex items-center justify-center overflow-hidden mb-3 '>
               {camera?.status === 'active' ? (
                  <img
                  src={`http://localhost:5000/api/cameras/${camera._id}/video_feed`}
-                 alt="Live Camera"
+                 alt="Live Cacmera"
                  className='w-full h-full object-cover rounded-xl'
                />
               ) : (

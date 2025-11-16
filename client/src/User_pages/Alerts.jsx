@@ -62,7 +62,7 @@ const Alerts = () => {
 
   return (
     <>
-      <Header />
+      <Header className='z-0' />
       <section className='bg-gradient-to-tr to-blue-300 from-gray-700 min-h-screen py-10 flex flex-col items-center'>
         <div className='pt-20 w-full max-w-4xl px-4'>
           <div className='flex flex-col md:flex-row md:space-x-8 space-y-4 md:space-y-0 mb-8 justify-between items-center'>

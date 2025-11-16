@@ -27,7 +27,7 @@ const Header = () => {
     <section className='fixed bg-gray-950 w-full h-14 flex px-8 py-2 justify-between'>
         <section className='self-start  w-1/3 h-11/12'>
         <Link to={'/'} className='flex h-full align-middle'>
-            <img src={Logo} alt="" className='w-fit min-h-fit h-10' />
+            <img src={Logo} alt="" className='h-10 w-auto object-contain' />
         <span className=' text-3xl text-yellow-100 mx-2 right-0 w-full font-extrabold '>
             Observo
         </span>
@@ -48,7 +48,7 @@ const Header = () => {
             </span>
         </section>
         <section className='content-end text-right  w-1/3 '>
-        <span className='rounded-full flex justify-end' >
+        <span className='rounded-full flex justify-end relative z-0' >
         {uShow&&(<>
         <section className='bg-blue-500 min-w-48 w-1/2 relative max-h-60 text-start p-3 h-fit top-4 rounded-xl '>
             <section className='text-xl text-gray-700 italic font-semibold'>
